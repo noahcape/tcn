@@ -1,1 +1,12 @@
 /target
+
+# data files
+lattice_polygons_all
+nontroplanar
+topcom_out_ex
+
+# todo file
+TODO.txt
+
+# md file pdfs
+*.pdf
