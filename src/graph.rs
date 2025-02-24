@@ -47,6 +47,11 @@ impl Graph {
         edges.into_iter()
     }
 
+    pub fn new_skeleton(subdivision: &Subdivision) -> Self {
+        let graph = Graph::from_subdivision(subdivision);
+        graph.skeletonize(subdivision)
+    }
+
     pub fn skeletonize(self, subd: &Subdivision) -> Self {
         self.remove_nodes(&subd)
             .remove_univalent()
