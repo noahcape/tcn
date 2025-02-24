@@ -107,9 +107,7 @@ pub fn apply_flips(
     (nodal_subdivisions, nodal_subd_idxs)
 }
 
-pub fn parse_input(
-    lines: Lines<StdinLock<'static>>,
-) -> (Vec<Subdivision>, Vec<Flip>, Vec<usize>) {
+pub fn parse_input(lines: Lines<StdinLock<'static>>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usize>) {
     let base_length = 10000;
     let mut subdivision_length = 0;
     let mut subdivisions: Vec<Subdivision> = vec![];
@@ -168,14 +166,10 @@ pub fn maximal_polygon_classes() {
     }
 }
 
-pub fn skeleton_classes(
-    nontroplanar: String,
-    nodes: usize,
-) {
+pub fn skeleton_classes(nontroplanar: String, nodes: usize) {
     let lines = std::io::stdin().lines();
 
-    let (mut subdivisions, flips, mut subdivision_idxs) =
-        crate::utils::parse_input(lines);
+    let (mut subdivisions, flips, mut subdivision_idxs) = crate::utils::parse_input(lines);
 
     for _ in 0..nodes {
         let res =
@@ -191,7 +185,7 @@ pub fn skeleton_classes(
 
     for subd in subdivisions {
         let graph = crate::graph::Graph::from_subdivision(&subd);
-        let mut skeletonized_graph = graph.skeletonize(subd);
+        let mut skeletonized_graph = graph.skeletonize(&subd);
         let key = skeletonized_graph.categorizing_hash();
 
         match filter {

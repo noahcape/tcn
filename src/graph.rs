@@ -47,7 +47,7 @@ impl Graph {
         edges.into_iter()
     }
 
-    pub fn skeletonize(self, subd: Subdivision) -> Self {
+    pub fn skeletonize(self, subd: &Subdivision) -> Self {
         self.remove_nodes(&subd)
             .remove_univalent()
             .smooth_over_bivalent(&subd.polygons)
