@@ -188,7 +188,7 @@ impl Edge {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Subdivision {
     pub polygons: Vec<Polygon>,
     pub polygon_map: HashMap<Edge, Vec<Polygon>>,
