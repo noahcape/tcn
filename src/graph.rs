@@ -53,7 +53,7 @@ impl Graph {
     }
 
     pub fn skeletonize(self, subd: &Subdivision) -> Self {
-        self.remove_nodes(&subd)
+        self.remove_nodes(subd)
             .remove_univalent()
             .smooth_over_bivalent(&subd.polygons)
     }

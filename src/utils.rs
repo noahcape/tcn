@@ -1,7 +1,7 @@
 use regex::{self, Regex};
 use std::collections::{HashMap, HashSet};
-use std::fs::read_to_string;
-use std::io::{Lines, StdinLock};
+use std::fs::{self, read_to_string};
+use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
 use crate::polygon::*;
@@ -107,7 +107,7 @@ pub fn apply_flips(
     (nodal_subdivisions, nodal_subd_idxs)
 }
 
-pub fn parse_input(lines: Lines<StdinLock<'static>>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usize>) {
+pub fn parse_input(lines: Vec<String>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usize>) {
     let base_length = 10000;
     let mut subdivision_length = 0;
     let mut subdivisions: Vec<Subdivision> = vec![];
@@ -115,35 +115,30 @@ pub fn parse_input(lines: Lines<StdinLock<'static>>) -> (Vec<Subdivision>, Vec<F
     let mut subdivision_idxs = vec![usize::MAX; base_length];
 
     for line in lines {
-        match line {
-            Ok(l) => {
-                let flip_re = Regex::new(r"flip\[\d+\]").unwrap();
-                let triangulation_re = Regex::new(r"T\[\d+\]").unwrap();
+        let flip_re = Regex::new(r"flip\[\d+\]").unwrap();
+        let triangulation_re = Regex::new(r"T\[\d+\]").unwrap();
 
-                if flip_re.is_match(&l) {
-                    if let Some(flip) = Flip::new(&l) {
-                        flips.push(flip);
-                    }
-                } else if triangulation_re.is_match(&l) {
-                    let triangulation = Subdivision::from_formatted_str(&l);
-                    subdivisions.push(triangulation);
+        if flip_re.is_match(&line) {
+            if let Some(flip) = Flip::new(&line) {
+                flips.push(flip);
+            }
+        } else if triangulation_re.is_match(&line) {
+            let triangulation = Subdivision::from_formatted_str(&line);
+            subdivisions.push(triangulation);
 
-                    let mts = triangulation_re.find(&l).unwrap();
-                    let idx: usize =
-                        FromStr::from_str(l.get(mts.start() + 2..mts.end() - 1).unwrap()).unwrap();
+            let mts = triangulation_re.find(&line).unwrap();
+            let idx: usize =
+                FromStr::from_str(line.get(mts.start() + 2..mts.end() - 1).unwrap()).unwrap();
 
-                    match idx.cmp(&subdivision_idxs.len()) {
-                        std::cmp::Ordering::Less => subdivision_idxs[idx] = subdivision_length,
-                        std::cmp::Ordering::Equal => subdivision_idxs.push(subdivision_length),
-                        std::cmp::Ordering::Greater => {
-                            subdivision_idxs.resize(subdivision_idxs.len() + idx, usize::MAX);
-                            subdivision_idxs[idx] = subdivision_length;
-                        }
-                    }
-                    subdivision_length += 1;
+            match idx.cmp(&subdivision_idxs.len()) {
+                std::cmp::Ordering::Less => subdivision_idxs[idx] = subdivision_length,
+                std::cmp::Ordering::Equal => subdivision_idxs.push(subdivision_length),
+                std::cmp::Ordering::Greater => {
+                    subdivision_idxs.resize(subdivision_idxs.len() + idx, usize::MAX);
+                    subdivision_idxs[idx] = subdivision_length;
                 }
             }
-            Err(..) => println!("Error occured"),
+            subdivision_length += 1;
         }
     }
 
@@ -166,10 +161,15 @@ pub fn maximal_polygon_classes() {
     }
 }
 
-pub fn skeleton_classes(nontroplanar: String, nodes: usize) {
-    let lines = std::io::stdin().lines();
+pub fn skeleton_classes(nontroplanar: String, nodes: usize, fname: String) {
+    let fopen = fs::File::open(fname).unwrap();
+    let buf = BufReader::new(fopen);
 
-    let (mut subdivisions, flips, mut subdivision_idxs) = crate::utils::parse_input(lines);
+    let (mut subdivisions, flips, mut subdivision_idxs) = crate::utils::parse_input(
+        buf.lines()
+            .map(|l| l.expect("Could not parse line"))
+            .collect(),
+    );
 
     for _ in 0..nodes {
         let res =
