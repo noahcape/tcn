@@ -99,7 +99,7 @@ pub fn apply_flips(
             None => continue,
         };
 
-        nodal_subdivisions.push(Subdivision::new(polygons));
+        nodal_subdivisions.push(Subdivision::new_from_polygons(polygons));
         nodal_subd_idxs[flip.subdivision_one_idx] = num_nodal_subdivisions;
         num_nodal_subdivisions += 1;
     }
@@ -123,7 +123,7 @@ pub fn parse_input(lines: Vec<String>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usiz
                 flips.push(flip);
             }
         } else if triangulation_re.is_match(&line) {
-            let triangulation = Subdivision::from_formatted_str(&line);
+            let triangulation = Subdivision::new_with_regex(&line);
             subdivisions.push(triangulation);
 
             let mts = triangulation_re.find(&line).unwrap();

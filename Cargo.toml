@@ -7,3 +7,10 @@ edition = "2021"
 clap = { version = "4.5.28", features = ["derive"] }
 petgraph = "0.7.1"
 regex = "1.11.1"
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+
+[[bench]]
+name = "my_benchmark"
+harness = false

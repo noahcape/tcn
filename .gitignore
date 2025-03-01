@@ -10,3 +10,5 @@ TODO.txt
 
 # md file pdfs
 *.pdf
+
+*.out

@@ -203,7 +203,7 @@ impl LatticePolygon {
     }
 
     // Given a polygon compute the convex hull
-    fn convex_hull(&self) -> Self {
+    pub fn convex_hull(&self) -> Self {
         let mut convex_hull = vec![];
 
         if self.points.len() < 3 {
@@ -239,7 +239,7 @@ impl LatticePolygon {
         }
     }
 
-    fn doubly_interior(&self) -> Self {
+    pub fn doubly_interior(&self) -> Self {
         let interior = self.interior_points();
         let interior_convex_hull = interior.convex_hull();
 
