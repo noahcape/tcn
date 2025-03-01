@@ -441,6 +441,10 @@ impl Flip {
 
                     match count {
                         0 => {
+                            if idx_one == idx_two {
+                                return None;
+                            }
+
                             flip.subdivision_one_idx = idx_two;
                             flip.subdivision_two_idx = idx_one;
                         }
