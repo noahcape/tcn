@@ -98,6 +98,7 @@ impl Graph {
         graph
     }
 
+    // todo: what if there are multiple nodes?
     fn remove_nodes(mut self, subdivision: &Subdivision) -> Self {
         let mut polygon_idx_map: HashMap<&Polygon, usize> = HashMap::new();
         for (idx, poly) in subdivision.polygons.iter().enumerate() {

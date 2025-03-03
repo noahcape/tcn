@@ -1,6 +1,8 @@
 use regex::Regex;
 use std::{cmp::Ordering, collections::HashMap, fmt};
 
+use crate::polygon::LineSegment;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Polygon {
     Triangle(Edge, Edge, Edge),
@@ -16,6 +18,26 @@ impl fmt::Display for Polygon {
             }
         }
     }
+}
+
+#[test]
+fn test_illegal_flip() {
+    // flip
+    let fs = "flip[15]:={4,4}; // supported by [{7,10},{8,9}]";
+    // triangulation
+    let ts =  "T[4] := {{0,1,2},{0,2,3},{1,2,5},{1,4,5},{2,3,5},{3,5,6},{3,6,7},{3,7,8},{4,5,9},{5,6,9},{6,7,9},{7,8,9},{8,9,10},{8,10,11},{8,11,12},{9,10,13},{10,11,13},{11,12,13}};";
+    let flip = match Flip::new(fs) {
+        Some(f) => f,
+        _ => panic!("Failed to parse flip"),
+    };
+
+    let triang = match Subdivision::new(ts) {
+        Some((t, _)) => t,
+        _ => panic!("Failed to parse triangulation"),
+    };
+
+    println!("{:?}", flip);
+    println!("{:?}", triang);
 }
 
 #[test]
@@ -81,15 +103,86 @@ fn test_flip_edge() {
     )
 }
 
+// [[0,2,1],[1,1,1],[1,2,1],[1,3,1],[2,0,1],[2,1,1],[2,2,1],[2,3,1],[2,4,1],[3,1,1],[3,2,1],[3,3,1],[4,2,1]]
+#[test]
+fn test_is_legal_paralellogram() {
+    let vertices = vec![
+        crate::polygon::Point { x: 0, y: 2 },
+        crate::polygon::Point { x: 1, y: 1 },
+        crate::polygon::Point { x: 2, y: 0 },
+        crate::polygon::Point { x: 2, y: 1 },
+    ];
+
+    let parallelogram = Polygon::from_edges(vec![
+        &Edge {
+            vertex_one: 0,
+            vertex_two: 1,
+        },
+        &Edge {
+            vertex_one: 1,
+            vertex_two: 2,
+        },
+        &Edge {
+            vertex_one: 2,
+            vertex_two: 3,
+        },
+        &Edge {
+            vertex_one: 0,
+            vertex_two: 3,
+        },
+    ])
+    .unwrap();
+
+    assert!(!parallelogram.is_legal_parallelogram(&vertices))
+}
+
+#[test]
+fn test_is_legal_paralellogram_b() {
+    let vertices = vec![
+        crate::polygon::Point { x: 0, y: 2 },
+        crate::polygon::Point { x: 1, y: 1 },
+        crate::polygon::Point { x: 2, y: 1 },
+        crate::polygon::Point { x: 1, y: 2 },
+    ];
+
+    let parallelogram = Polygon::from_edges(vec![
+        &Edge {
+            vertex_one: 0,
+            vertex_two: 1,
+        },
+        &Edge {
+            vertex_one: 1,
+            vertex_two: 2,
+        },
+        &Edge {
+            vertex_one: 2,
+            vertex_two: 3,
+        },
+        &Edge {
+            vertex_one: 0,
+            vertex_two: 3,
+        },
+    ])
+    .unwrap();
+
+    assert!(parallelogram.is_legal_parallelogram(&vertices))
+}
+
 impl Polygon {
     pub fn from_edges(mut edges: Vec<&Edge>) -> Option<Self> {
         edges.sort_by(|a, b| a.compare_to(b));
 
+        // TODO: check if any consecutive edges are collinear
+
         match edges.len() {
             3 => Some(Polygon::Triangle(*edges[0], *edges[1], *edges[2])),
-            4 => Some(Polygon::Parallelogram(
-                *edges[0], *edges[1], *edges[2], *edges[3],
-            )),
+            4 => {
+                // make sure that the points from a parallelogram
+
+                Some(Polygon::Parallelogram(
+                    *edges[0], *edges[1], *edges[2], *edges[3],
+                ))
+            }
             _ => None,
         }
     }
@@ -120,6 +213,7 @@ impl Polygon {
                     .filter(|e| **e != edge)
                     .collect::<Vec<_>>(),
             ),
+
             _ => None,
         }
     }
@@ -158,6 +252,30 @@ impl Polygon {
                 Some(((*l1[0], *l1[1]), (*l2[0], *l2[1])))
             }
             Polygon::Triangle(..) => None,
+        }
+    }
+
+    pub fn is_legal_parallelogram(&self, vertices: &[crate::polygon::Point]) -> bool {
+        match self.get_disjoint_edges() {
+            Some(((e1, e2), (e3, e4))) => {
+                return LineSegment::from_points(
+                    vertices[e1.vertex_one as usize],
+                    vertices[e1.vertex_two as usize],
+                )
+                .is_parallel_to(LineSegment::from_points(
+                    vertices[e2.vertex_one as usize],
+                    vertices[e2.vertex_two as usize],
+                )) && LineSegment::from_points(
+                    vertices[e3.vertex_one as usize],
+                    vertices[e3.vertex_two as usize],
+                )
+                .is_parallel_to(LineSegment::from_points(
+                    vertices[e4.vertex_one as usize],
+                    vertices[e4.vertex_two as usize],
+                ));
+            }
+
+            None => false,
         }
     }
 }
@@ -417,6 +535,102 @@ impl Flip {
             .collect::<Vec<_>>();
 
         Some((idxs[0], idxs[1]))
+    }
+
+    // should be polygons from edge_one
+    pub fn apply_flip(
+        &self,
+        subdivisions: &Vec<Subdivision>,
+        vertices: &[crate::polygon::Point],
+    ) -> Option<Vec<Subdivision>> {
+        let Flip {
+            edge_one: edge,
+            subdivision_one_idx: _,
+            edge_two: _,
+            subdivision_two_idx: _,
+        } = self;
+
+        let mut flipped_subds: Vec<Subdivision> = vec![];
+
+        for subd in subdivisions {
+            let mut polygons;
+            let (polygon_a, polygon_b) = match subd.polygon_map.get(&edge.unwrap()) {
+                Some(adjs) => {
+                    let flip_adj_polygons = (adjs[0], adjs[1]);
+                    polygons = subd
+                        .polygons
+                        .clone()
+                        .into_iter()
+                        .filter(|p| !adjs.contains(p))
+                        .collect::<Vec<_>>();
+
+                    flip_adj_polygons
+                }
+                None => return None,
+            };
+
+            match Polygon::flip_edge(polygon_a, polygon_b, edge.unwrap()) {
+                Some(p) => {
+                    // or check if its a parallelogram by check if the disjoint edges are parallel
+                    if p.is_legal_parallelogram(vertices) {
+                        polygons.push(p)
+                    } else {
+                        return None;
+                    }
+                }
+                None => return None,
+            };
+
+            flipped_subds.push(Subdivision::new_from_polygons(polygons));
+        }
+
+        Some(flipped_subds)
+    }
+
+    pub fn set_up_flip(
+        &self,
+        subdivisions: &HashMap<usize, Vec<Subdivision>>,
+    ) -> Option<Vec<Subdivision>> {
+        let Flip {
+            edge_one,
+            subdivision_one_idx: subd_one_idx,
+            edge_two,
+            subdivision_two_idx: subd_two_idx,
+        } = self;
+
+        // check if there exist these subdivisions
+        let subds = match subdivisions.get(subd_one_idx) {
+            Some(sbds) => sbds,
+            None => return None,
+        };
+
+        // make sure that the edge has two adjecent polygons
+        let flippable_subds = subds
+            .clone()
+            .into_iter()
+            .filter(|subd| match subd.polygon_map.get(&edge_one.unwrap()) {
+                Some(adjs) => adjs.len() == 2,
+                None => false,
+            })
+            .collect::<Vec<_>>();
+
+        let subds = match subdivisions.get(subd_two_idx) {
+            Some(sbd) => sbd,
+            None => return None,
+        };
+
+        // make sure that the edge has two adjecent polygons
+        if subds
+            .iter()
+            .any(|subd| match subd.polygon_map.get(&edge_two.unwrap()) {
+                Some(adjs) => adjs.len() == 2 && !flippable_subds.is_empty(),
+                None => false,
+            })
+        {
+            return Some(flippable_subds);
+        }
+
+        None
     }
 
     pub fn new(s: &str) -> Option<Flip> {

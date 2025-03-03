@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, read_to_string};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 
 use crate::polygon::*;
 use crate::subdivision::*;
@@ -26,91 +26,38 @@ pub fn parse_nonplanar_hashes(file: &str) -> Option<HashSet<String>> {
 }
 
 pub fn apply_flips(
-    subdivisions: &[Subdivision],
+    subdivisions_m: &HashMap<usize, Vec<Subdivision>>,
     flips: &Vec<Flip>,
-    subdivision_idxs: &[usize],
-    num_triangulations: usize,
-) -> (Vec<Subdivision>, Vec<usize>) {
-    let mut num_nodal_subdivisions = 0;
-    let mut nodal_subdivisions: Vec<Subdivision> = vec![];
-    let mut nodal_subd_idxs: Vec<usize> = vec![usize::MAX; num_triangulations];
+    vertices: &[Point],
+) -> HashMap<usize, Vec<Subdivision>> {
+    let mut nodal_subdivisions_m: HashMap<usize, Vec<Subdivision>> = HashMap::new();
 
+    // Flip edge in both triangulation one and two - as long as it is possible
     for flip in flips {
-        if flip.subdivision_one_idx >= subdivision_idxs.len()
-            || flip.subdivision_two_idx >= subdivision_idxs.len()
-        {
-            continue;
-        }
-
-        if subdivision_idxs[flip.subdivision_one_idx] == usize::MAX
-            || subdivision_idxs[flip.subdivision_two_idx] == usize::MAX
-        {
-            continue;
-        }
-
-        let subdivision_one = &subdivisions[subdivision_idxs[flip.subdivision_one_idx]];
-        let subdivision_two = &subdivisions[subdivision_idxs[flip.subdivision_two_idx]];
-
-        let subd_one_adjacent_polygons = subdivision_one.polygon_map.get(&flip.edge_one.unwrap());
-        match subd_one_adjacent_polygons {
-            Some(adjacency_list) => {
-                if adjacency_list.len() != 2 {
-                    continue;
+        let flipped_subdivisions = match flip.set_up_flip(subdivisions_m) {
+            Some(flippable_subdivisions) => {
+                match flip.apply_flip(&flippable_subdivisions, vertices) {
+                    Some(f_subd) => f_subd,
+                    None => continue,
                 }
             }
-            None => continue,
-        }
-
-        let subd_two_adjacent_polygons = subdivision_two.polygon_map.get(&flip.edge_two.unwrap());
-        match subd_two_adjacent_polygons {
-            Some(adjacency_list) => {
-                if adjacency_list.len() != 2 {
-                    continue;
-                }
-            }
-            None => continue,
-        }
-
-        let mut polygons = subdivision_one
-            .polygons
-            .iter()
-            .filter_map(|p| {
-                if !p.contains_edge(&flip.edge_one.unwrap()) {
-                    Some(*p)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let polygons_in_flip = subdivision_one
-            .polygon_map
-            .get(&flip.edge_one.unwrap())
-            .unwrap();
-
-        match Polygon::flip_edge(
-            polygons_in_flip[0],
-            polygons_in_flip[1],
-            flip.edge_one.unwrap(),
-        ) {
-            Some(p) => polygons.push(p),
             None => continue,
         };
 
-        nodal_subdivisions.push(Subdivision::new_from_polygons(polygons));
-        nodal_subd_idxs[flip.subdivision_one_idx] = num_nodal_subdivisions;
-        num_nodal_subdivisions += 1;
+        match nodal_subdivisions_m.get_mut(&flip.subdivision_one_idx) {
+            Some(v) => v.extend(flipped_subdivisions),
+            None => {
+                nodal_subdivisions_m.insert(flip.subdivision_one_idx, flipped_subdivisions);
+            }
+        }
     }
 
-    (nodal_subdivisions, nodal_subd_idxs)
+    nodal_subdivisions_m
 }
 
-pub fn parse_input(lines: Vec<String>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usize>) {
-    let base_length = 10000;
-    let mut subdivision_length = 0;
-    let mut subdivisions: Vec<Subdivision> = vec![];
+pub fn parse_input(lines: Vec<String>) -> (HashMap<usize, Vec<Subdivision>>, Vec<Flip>) {
+    let mut subdivisions_m: HashMap<usize, Vec<Subdivision>> = HashMap::new();
     let mut flips: Vec<Flip> = vec![];
-    let mut subdivision_idxs = vec![usize::MAX; base_length];
 
     for line in lines.clone() {
         match line.starts_with("T") {
@@ -120,17 +67,13 @@ pub fn parse_input(lines: Vec<String>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usiz
                     Some((triangulation, idx)) => (triangulation, idx),
                     None => continue,
                 };
-                subdivisions.push(triangulation);
 
-                match idx.cmp(&subdivision_idxs.len()) {
-                    std::cmp::Ordering::Less => subdivision_idxs[idx] = subdivision_length,
-                    std::cmp::Ordering::Equal => subdivision_idxs.push(subdivision_length),
-                    std::cmp::Ordering::Greater => {
-                        subdivision_idxs.resize(subdivision_idxs.len() + idx, usize::MAX);
-                        subdivision_idxs[idx] = subdivision_length;
+                match subdivisions_m.get_mut(&idx) {
+                    Some(v) => v.push(triangulation),
+                    None => {
+                        subdivisions_m.insert(idx, vec![triangulation]);
                     }
                 }
-                subdivision_length += 1;
             }
             // flip
             false => {
@@ -141,7 +84,7 @@ pub fn parse_input(lines: Vec<String>) -> (Vec<Subdivision>, Vec<Flip>, Vec<usiz
         }
     }
 
-    (subdivisions, flips, subdivision_idxs)
+    (subdivisions_m, flips)
 }
 
 pub fn maximal_polygon_classes() {
@@ -160,65 +103,127 @@ pub fn maximal_polygon_classes() {
     }
 }
 
-pub fn skeleton_classes(nontroplanar: String, nodes: usize, fname: String) {
-    let fopen = fs::File::open(fname).unwrap();
-    let buf = BufReader::new(fopen);
+pub fn skeleton_classes(
+    nontroplanar_dir: String,
+    genus: usize,
+    out: String,
+    tfile: String,
+    vfile: String,
+) -> Result<(), String> {
+    // enusre we have correct genus as input
+    assert!(genus > 3 && genus < 9);
 
-    let (mut subdivisions, flips, mut subdivision_idxs) = crate::utils::parse_input(
-        buf.lines()
-            .map(|l| l.expect("Could not parse line"))
+    let filename = std::path::Path::new(&tfile)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let file = match fs::File::open(tfile.clone()) {
+        Ok(f) => f,
+        Err(_) => return Err(format!("failed to open file {tfile}")),
+    };
+    let fbuf = BufReader::new(file);
+
+    println!("Parsing vertices from {}", vfile);
+    let vertices = match crate::polygon::Point::parse_many(vfile.clone()) {
+        Some(vs) => vs,
+        None => return Err(format!("Cannot parse the vertice file {vfile}")),
+    };
+
+    println!("Parsing triangulations and flips from {}", tfile);
+    let (mut subdivisions_m, flips) = crate::utils::parse_input(
+        fbuf.lines()
+            .map(|l| l.expect(&format!("Could not parse line from {tfile}")))
             .collect(),
     );
 
-    for _ in 0..nodes {
-        let res =
-            crate::utils::apply_flips(&subdivisions, &flips, &subdivision_idxs, subdivisions.len());
+    let nodes = genus - 3;
 
-        subdivisions = res.0;
-        subdivision_idxs = res.1;
-    }
+    for node in 1..=nodes {
+        let genus_str = format!("genus{}", genus - node);
+        // let nontroplanar_file = format!("{}/{genus_str}.txt", nontroplanar_dir);
+        println!(
+            "Computing genus {} graphs of {} triangulations with {} node(s)",
+            genus - node,
+            tfile,
+            node
+        );
 
-    let mut buckets: HashMap<String, Vec<crate::graph::Graph>> = HashMap::new();
+        let out_dir = format!("./{out}/{genus_str}");
+        match fs::DirBuilder::new().recursive(true).create(&out_dir) {
+            Ok(_) => (),
+            Err(_) => return Err(format!("Failed out create dir {out}")),
+        }
 
-    let filter = crate::utils::parse_nonplanar_hashes(&nontroplanar);
-
-    for subd in subdivisions {
-        let graph = crate::graph::Graph::from_subdivision(&subd);
-        let mut skeletonized_graph = graph.skeletonize(&subd);
-        let key = skeletonized_graph.categorizing_hash();
-
-        match filter {
-            Some(ref filter) => {
-                let insert = filter.contains(&key);
-                if insert {
-                    if let Some(v) = buckets.get_mut(&key) {
-                        if v.iter().all(|g| !g.is_isomorphic(&skeletonized_graph)) {
-                            v.push(skeletonized_graph);
-                        }
-                    } else {
-                        buckets.insert(key, vec![skeletonized_graph]);
-                    };
-                }
+        let mut out_f = match fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(format!("{out}/{genus_str}/from_{filename}"))
+        {
+            Ok(f) => f,
+            Err(e) => {
+                return Err(format!(
+                    "Failed out create file ./{out}/{genus_str}/from_{filename} -- {e}"
+                ))
             }
-            None => {
-                if let Some(v) = buckets.get_mut(&key) {
-                    if v.iter().all(|g| !g.is_isomorphic(&skeletonized_graph)) {
-                        v.push(skeletonized_graph);
+        };
+
+        subdivisions_m = crate::utils::apply_flips(&subdivisions_m, &flips, &vertices);
+
+        let mut buckets: std::collections::HashMap<
+            String,
+            Vec<(crate::graph::Graph, crate::subdivision::Subdivision)>,
+        > = std::collections::HashMap::new();
+
+        // for now keep filter out
+        // let filter = match crate::utils::parse_nonplanar_hashes(&nontroplanar_file) {
+        //     Some(f) => f,
+        //     None => return Err(format!("Could not read file {}", nontroplanar_file)),
+        // };
+
+        for subd in subdivisions_m.values().flatten() {
+            let mut skeletonized_graph = crate::graph::Graph::new_skeleton(subd);
+            let key = skeletonized_graph.categorizing_hash();
+
+            // let insert = filter.contains(&key);
+            // if insert {
+            if let Some(v) = buckets.get_mut(&key) {
+                if v.iter().all(|(g, _)| !g.is_isomorphic(&skeletonized_graph)) {
+                    v.push((skeletonized_graph, subd.clone()));
+                }
+            } else {
+                buckets.insert(key, vec![(skeletonized_graph, subd.clone())]);
+            };
+            // }
+        }
+
+        // write all graphs up to isomorphism grouped by (Loops:Bridges:Bi-Edges:Sprawling)
+        for (key, graphs) in buckets.iter() {
+            match out_f.write_fmt(format_args!("{}\n", key)) {
+                Ok(_) => (),
+                Err(_) => {
+                    return Err(format!(
+                        "Failed to write key {key} to file {out}/{genus_str}!"
+                    ))
+                }
+            };
+            for (graph, subd) in graphs {
+                match out_f.write_fmt(format_args!("Skeleton: {}\nSubdivision: {}\n", graph, subd))
+                {
+                    Ok(_) => (),
+                    Err(_) => {
+                        return Err(format!(
+                            "Failed to write graph {graph} to file {out}/{genus_str}!"
+                        ))
                     }
-                } else {
-                    buckets.insert(key, vec![skeletonized_graph]);
                 };
             }
+            match out_f.write(b"\n") {
+                Ok(_) => (),
+                Err(_) => return Err(format!("Failed to write to file {out}/{genus_str}!")),
+            };
         }
     }
 
-    // prints all graphs up to isomorphism grouped by (Loops:Bridges:Bi-Edges:Sprawling)
-    for (k, v) in buckets.iter() {
-        println!("Loops:Bridges:Bi-Edges:Sprawling");
-        println!("{k}");
-        for g in v {
-            println!("{}", g);
-        }
-        println!();
-    }
+    Ok(())
 }

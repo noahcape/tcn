@@ -1,5 +1,11 @@
 use regex::Regex;
-use std::{fmt, io};
+use std::{
+    collections::HashSet,
+    fmt,
+    io::{self, Read},
+};
+
+use crate::subdivision::Polygon;
 
 // A 2D lattice polygon
 // @param: points (the minimal defining set of points)
@@ -72,6 +78,26 @@ fn test_doulby_interior_points() {
 }
 
 impl LatticePolygon {
+    pub fn is_convex(&self) -> bool {
+        self.interior_points().points.is_empty()
+    }
+
+    pub fn from_polygon(p: Polygon, vertices: &[Point]) -> Self {
+        LatticePolygon {
+            points: p
+                .edge_itr()
+                .flat_map(|e| {
+                    vec![
+                        vertices[e.vertex_one as usize],
+                        vertices[e.vertex_two as usize],
+                    ]
+                })
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        }
+    }
+
     pub fn to_ordered_string(&self) -> String {
         let mut copied_points = self.points.clone();
         copied_points.sort_by(|t, o| t.x.cmp(&o.x));
@@ -247,10 +273,10 @@ impl LatticePolygon {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct Point {
-    x: i16,
-    y: i16,
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Point {
+    pub x: i16,
+    pub y: i16,
 }
 
 impl fmt::Display for Point {
@@ -289,38 +315,94 @@ impl Point {
     }
 
     // check if c is on the line segment of a-b
-    fn on_line(&self, line: &LineSegment) -> bool {
+    pub fn on_line(&self, line: &LineSegment) -> bool {
         let a = line.a;
         let b = line.b;
         let c = self;
 
         let cross_product = (c.y - a.y) * (b.x - a.x) - (c.x - a.x) * (b.y - a.y);
-
-        if cross_product.abs() != 0 {
-            return false;
-        }
-
         let dot_product = (c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y);
-        if dot_product < 0 {
-            return false;
-        }
-
         let squared_length_ba = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
-        if dot_product > squared_length_ba {
-            return false;
+
+        !(cross_product.abs() != 0 || dot_product < 0 || dot_product > squared_length_ba)
+    }
+
+    fn parse_from_str(s: &str) -> Option<Point> {
+        let split = s.split(",");
+
+        if split.clone().count() != 3 {
+            return None;
         }
 
-        true
+        let idxs = split.map(|s| s.parse::<i16>().unwrap()).collect::<Vec<_>>();
+
+        Some(Point {
+            x: idxs[0],
+            y: idxs[1],
+        })
+    }
+
+    pub fn parse_many(file: String) -> Option<Vec<Point>> {
+        let mut fopen = std::fs::File::open(file).unwrap();
+        let mut buf = String::new();
+
+        match fopen.read_to_string(&mut buf) {
+            Ok(_) => (),
+            Err(_) => panic!("Failed to read vertex file"),
+        }
+
+        let mut points = vec![];
+
+        let mut cumul = String::new();
+        let mut start_cumul = false;
+
+        for chr in buf[..=buf.len() - 2].chars() {
+            match chr {
+                '[' => start_cumul = true,
+                ']' => {
+                    let pt = match Point::parse_from_str(&cumul) {
+                        Some(pt) => pt,
+                        None => return None,
+                    };
+                    points.push(pt);
+                    start_cumul = false;
+                    cumul = String::new();
+                }
+                _ => {
+                    if start_cumul {
+                        cumul.push(chr);
+                    }
+                }
+            }
+        }
+
+        Some(points)
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-struct LineSegment {
-    a: Point,
-    b: Point,
+pub struct LineSegment {
+    pub a: Point,
+    pub b: Point,
 }
 
 impl LineSegment {
+    pub fn from_points(p1: Point, p2: Point) -> Self {
+        LineSegment { a: p1, b: p2 }
+    }
+
+    pub fn is_parallel_to(&self, other: LineSegment) -> bool {
+        let (this_slope_num, this_slope_denom) = self.slope();
+        let (other_slope_num, other_slope_denom) = other.slope();
+
+        this_slope_num * other_slope_denom == other_slope_num * this_slope_denom
+    }
+
+    // slope as (numerator, denominator)
+    fn slope(&self) -> (i16, i16) {
+        ((self.b.y - self.a.y).abs(), (self.b.x - self.a.x).abs())
+    }
+
     fn intersect(&self, other: &LineSegment) -> bool {
         let a = self.a;
         let b = self.b;
