@@ -3,7 +3,7 @@ use std::{cmp::Ordering, collections::HashMap, fmt};
 
 use crate::polygon::LineSegment;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash)]
 pub enum Polygon {
     Triangle(Edge, Edge, Edge),
     Parallelogram(Edge, Edge, Edge, Edge),
@@ -18,6 +18,33 @@ impl fmt::Display for Polygon {
             }
         }
     }
+}
+
+#[test]
+fn test_parallel_edge() {
+    let p = Polygon::Parallelogram(
+        Edge::new(5, 10),
+        Edge::new(5, 11),
+        Edge::new(10, 13),
+        Edge::new(11, 13),
+    );
+
+    assert_eq!(
+        Edge::new(10, 13),
+        p.get_parallel_edge_to(Edge::new(5, 11)).unwrap()
+    );
+    assert_eq!(
+        Edge::new(5, 10),
+        p.get_parallel_edge_to(Edge::new(11, 13)).unwrap()
+    );
+    assert_eq!(
+        Edge::new(5, 11),
+        p.get_parallel_edge_to(Edge::new(10, 13)).unwrap()
+    );
+    assert_eq!(
+        Edge::new(11, 13),
+        p.get_parallel_edge_to(Edge::new(5, 10)).unwrap()
+    );
 }
 
 #[test]
@@ -225,7 +252,7 @@ impl Polygon {
         }
     }
 
-    /// Returns two iterators each containing edges
+    /// Returns tuple-of-tuple each containing edges
     /// with disjoint vertices
     pub fn get_disjoint_edges(&self) -> Option<((Edge, Edge), (Edge, Edge))> {
         match self {
@@ -252,6 +279,21 @@ impl Polygon {
                 Some(((*l1[0], *l1[1]), (*l2[0], *l2[1])))
             }
             Polygon::Triangle(..) => None,
+        }
+    }
+
+    pub fn get_parallel_edge_to(&self, edge: Edge) -> Option<Edge> {
+        match self {
+            Polygon::Parallelogram(e1, e2, e3, e4) => {
+                for e in vec![e1, e2, e3, e4].into_iter() {
+                    if !(e.shares_vertex_with(&edge)) {
+                        return Some(*e);
+                    }
+                }
+
+                None
+            }
+            _ => None,
         }
     }
 
@@ -303,6 +345,13 @@ impl Edge {
             || self.vertex_two == other.vertex_one
             || self.vertex_two == other.vertex_two
     }
+
+    pub fn new(i: i16, j: i16) -> Self {
+        Self {
+            vertex_one: i,
+            vertex_two: j,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -330,6 +379,70 @@ fn parse_subdivision() {
     assert_eq!(subd, Subdivision::new_with_regex(test_str));
 }
 
+#[test]
+fn next_triangle() {
+    let polygons = vec![
+        Polygon::Triangle(Edge::new(0, 1), Edge::new(1, 2), Edge::new(0, 2)),
+        Polygon::Triangle(Edge::new(0, 2), Edge::new(2, 3), Edge::new(0, 3)),
+        Polygon::Triangle(Edge::new(2, 3), Edge::new(3, 5), Edge::new(2, 5)),
+        Polygon::Triangle(Edge::new(3, 5), Edge::new(5, 6), Edge::new(3, 6)),
+        Polygon::Triangle(Edge::new(3, 6), Edge::new(6, 7), Edge::new(3, 7)),
+        Polygon::Triangle(Edge::new(3, 7), Edge::new(7, 8), Edge::new(3, 8)),
+        Polygon::Triangle(Edge::new(5, 6), Edge::new(6, 11), Edge::new(5, 11)),
+        Polygon::Triangle(Edge::new(6, 7), Edge::new(7, 11), Edge::new(6, 11)),
+        Polygon::Triangle(Edge::new(7, 8), Edge::new(8, 12), Edge::new(7, 12)),
+        Polygon::Triangle(Edge::new(7, 11), Edge::new(11, 13), Edge::new(7, 13)),
+        Polygon::Triangle(Edge::new(7, 12), Edge::new(12, 13), Edge::new(7, 13)),
+        Polygon::Triangle(Edge::new(9, 10), Edge::new(10, 13), Edge::new(9, 13)),
+        Polygon::Parallelogram(
+            Edge::new(5, 10),
+            Edge::new(5, 11),
+            Edge::new(10, 13),
+            Edge::new(11, 13),
+        ),
+        Polygon::Parallelogram(
+            Edge::new(1, 2),
+            Edge::new(1, 4),
+            Edge::new(2, 5),
+            Edge::new(4, 5),
+        ),
+        Polygon::Parallelogram(
+            Edge::new(4, 5),
+            Edge::new(4, 9),
+            Edge::new(5, 10),
+            Edge::new(9, 10),
+        ),
+    ];
+
+    let subd = Subdivision::new_from_polygons(polygons);
+
+    assert_eq!(
+        subd.next_triangle(
+            Polygon::Parallelogram(
+                Edge::new(1, 2),
+                Edge::new(1, 4),
+                Edge::new(2, 5),
+                Edge::new(4, 5),
+            ),
+            Edge::new(2, 5)
+        ),
+        None
+    );
+
+    assert_eq!(
+        subd.next_triangle(
+            Polygon::Parallelogram(
+                Edge::new(5, 10),
+                Edge::new(5, 11),
+                Edge::new(10, 13),
+                Edge::new(11, 13),
+            ),
+            Edge::new(11, 13)
+        ),
+        None
+    );
+}
+
 impl Subdivision {
     /// Given string of the form a,b,c parse as (a,b,c)
     /// Reject if not in this form
@@ -340,7 +453,9 @@ impl Subdivision {
             return None;
         }
 
-        let idxs = split.map(|s| s.parse::<i16>().unwrap()).collect::<Vec<_>>();
+        let idxs = split
+            .map(|s| s.trim().parse::<i16>().unwrap())
+            .collect::<Vec<_>>();
 
         Some((idxs[0], idxs[1], idxs[2]))
     }
@@ -395,22 +510,13 @@ impl Subdivision {
                 '}' => {
                     let (idx_one, idx_two, idx_three) = match Subdivision::parse_idxs(&cumul) {
                         Some((i, j, k)) => (i, j, k),
-                        None => return None,
+                        None => return Some((subdivision, subd_idx)),
                     };
 
                     let tri = Polygon::from_edges(vec![
-                        &Edge {
-                            vertex_one: idx_one,
-                            vertex_two: idx_two,
-                        },
-                        &Edge {
-                            vertex_one: idx_two,
-                            vertex_two: idx_three,
-                        },
-                        &Edge {
-                            vertex_one: idx_one,
-                            vertex_two: idx_three,
-                        },
+                        &Edge::new(idx_one, idx_two),
+                        &Edge::new(idx_two, idx_three),
+                        &Edge::new(idx_one, idx_three),
                     ])
                     .unwrap();
 
@@ -459,18 +565,9 @@ impl Subdivision {
                 .collect::<Vec<_>>();
 
             let tri = Polygon::from_edges(vec![
-                &Edge {
-                    vertex_one: verticies[0],
-                    vertex_two: verticies[1],
-                },
-                &Edge {
-                    vertex_one: verticies[1],
-                    vertex_two: verticies[2],
-                },
-                &Edge {
-                    vertex_one: verticies[0],
-                    vertex_two: verticies[2],
-                },
+                &Edge::new(verticies[0], verticies[1]),
+                &Edge::new(verticies[1], verticies[2]),
+                &Edge::new(verticies[0], verticies[2]),
             ])
             .unwrap();
 
@@ -487,6 +584,42 @@ impl Subdivision {
         }
 
         subdivision
+    }
+
+    pub fn next_triangle(&self, parallelogram: Polygon, edge: Edge) -> Option<Polygon> {
+        let mut edge = edge;
+        let mut parallelogram = parallelogram;
+
+        loop {
+            let parallel_edge = match parallelogram.get_parallel_edge_to(edge) {
+                Some(e) => e,
+                None => return None,
+            };
+
+            let next_poly = self
+                .polygon_map
+                .get(&parallel_edge)
+                .unwrap()
+                .into_iter()
+                .filter(|p| *p != &parallelogram)
+                .collect::<Vec<_>>();
+
+            if next_poly.len() == 0 {
+                return None;
+            }
+
+            let next_p = next_poly[0];
+
+            match next_p {
+                Polygon::Triangle(..) => {
+                    return Some(*next_p);
+                }
+                Polygon::Parallelogram(..) => {
+                    edge = parallel_edge;
+                    parallelogram = *next_p;
+                }
+            }
+        }
     }
 }
 
@@ -531,7 +664,7 @@ impl Flip {
         }
 
         let idxs = split
-            .map(|s| s.parse::<usize>().unwrap())
+            .map(|s| s.trim().parse::<usize>().unwrap())
             .collect::<Vec<_>>();
 
         Some((idxs[0], idxs[1]))
@@ -575,10 +708,30 @@ impl Flip {
                     if p.is_legal_parallelogram(vertices) {
                         polygons.push(p)
                     } else {
+                        println!(
+                            "Illegal parallelogram: {} {} {:?}",
+                            p,
+                            edge.unwrap(),
+                            subdivisions
+                        );
                         return None;
                     }
                 }
-                None => return None,
+                None => {
+                    match (polygon_a, polygon_b) {
+                        (Polygon::Triangle(..), Polygon::Triangle(..)) => {
+                            println!(
+                                "Cannot find flip edge: {} {} {}\n\n",
+                                edge.unwrap(),
+                                polygon_a,
+                                polygon_b
+                            );
+                        }
+                        (_, _) => (),
+                    };
+
+                    return None;
+                }
             };
 
             flipped_subds.push(Subdivision::new_from_polygons(polygons));

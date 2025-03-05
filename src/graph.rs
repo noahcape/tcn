@@ -1,6 +1,6 @@
 use petgraph;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::{fmt, vec};
 
 use crate::subdivision::*;
 
@@ -24,6 +24,146 @@ impl fmt::Display for Graph {
 
         write!(f, "{buffer}")
     }
+}
+
+#[test]
+fn test_subdivision_to_graph() {
+    // 0:1:0:0
+    // Skeleton: (4,7) (4,7) (4,7) (7,4) (7,4) (7,4)
+    // Subdivision:
+    // [(0, 1), (1, 2), (0, 2)] [(0, 2), (2, 3), (0, 3)] [(2, 3), (3, 5), (2, 5)] [(3, 5), (5, 6), (3, 6)] [(3, 6), (6, 7), (3, 7)]
+    // [(3, 7), (7, 8), (3, 8)] [(5, 6), (6, 11), (5, 11)] [(6, 7), (7, 11), (6, 11)] [(7, 8), (8, 12), (7, 12)] [(7, 11), (11, 13), (7, 13)]
+    // [(7, 12), (12, 13), (7, 13)] [(9, 10), (10, 13), (9, 13)] [(5, 10), (5, 11), (10, 13), (11, 13)] [(1, 2), (1, 4), (2, 5), (4, 5)] [(4, 5), (4, 9), (5, 10), (9, 10)]
+    let polygons = vec![
+        Polygon::Triangle(Edge::new(0, 1), Edge::new(1, 2), Edge::new(0, 2)),
+        Polygon::Triangle(Edge::new(0, 2), Edge::new(2, 3), Edge::new(0, 3)),
+        Polygon::Triangle(Edge::new(2, 3), Edge::new(3, 5), Edge::new(2, 5)),
+        Polygon::Triangle(Edge::new(3, 5), Edge::new(5, 6), Edge::new(3, 6)),
+        Polygon::Triangle(Edge::new(3, 6), Edge::new(6, 7), Edge::new(3, 7)),
+        Polygon::Triangle(Edge::new(3, 7), Edge::new(7, 8), Edge::new(3, 8)),
+        Polygon::Triangle(Edge::new(5, 6), Edge::new(6, 11), Edge::new(5, 11)),
+        Polygon::Triangle(Edge::new(6, 7), Edge::new(7, 11), Edge::new(6, 11)),
+        Polygon::Triangle(Edge::new(7, 8), Edge::new(8, 12), Edge::new(7, 12)),
+        Polygon::Triangle(Edge::new(7, 11), Edge::new(11, 13), Edge::new(7, 13)),
+        Polygon::Triangle(Edge::new(7, 12), Edge::new(12, 13), Edge::new(7, 13)),
+        Polygon::Triangle(Edge::new(9, 10), Edge::new(10, 13), Edge::new(9, 13)),
+        Polygon::Parallelogram(
+            Edge::new(5, 10),
+            Edge::new(5, 11),
+            Edge::new(10, 13),
+            Edge::new(11, 13),
+        ),
+        Polygon::Parallelogram(
+            Edge::new(1, 2),
+            Edge::new(1, 4),
+            Edge::new(2, 5),
+            Edge::new(4, 5),
+        ),
+        Polygon::Parallelogram(
+            Edge::new(4, 5),
+            Edge::new(4, 9),
+            Edge::new(5, 10),
+            Edge::new(9, 10),
+        ),
+    ];
+
+    let subd = Subdivision::new_from_polygons(polygons);
+
+    let next_tri = subd.next_triangle(
+        Polygon::Parallelogram(
+            Edge::new(1, 2),
+            Edge::new(1, 4),
+            Edge::new(2, 5),
+            Edge::new(4, 5),
+        ),
+        Edge::new(1, 2),
+    );
+
+    assert_eq!(
+        next_tri.unwrap(),
+        Polygon::Triangle(Edge::new(9, 10), Edge::new(10, 13), Edge::new(9, 13))
+    );
+
+    let graph = Graph::from_subdivision(&subd);
+    let mut skeleton_graph = graph.skeletonize(&subd);
+    assert_eq!("0:0:2:0", skeleton_graph.categorizing_hash());
+}
+
+#[test]
+fn test_remove_nodes() {
+    let subdivision = Subdivision::new_from_polygons(vec![
+        Polygon::Triangle(
+            Edge {
+                vertex_one: 0,
+                vertex_two: 1,
+            },
+            Edge {
+                vertex_one: 0,
+                vertex_two: 2,
+            },
+            Edge {
+                vertex_one: 1,
+                vertex_two: 2,
+            },
+        ),
+        Polygon::Triangle(
+            Edge {
+                vertex_one: 1,
+                vertex_two: 2,
+            },
+            Edge {
+                vertex_one: 1,
+                vertex_two: 3,
+            },
+            Edge {
+                vertex_one: 2,
+                vertex_two: 3,
+            },
+        ),
+        Polygon::Parallelogram(
+            Edge {
+                vertex_one: 2,
+                vertex_two: 4,
+            },
+            Edge {
+                vertex_one: 2,
+                vertex_two: 3,
+            },
+            Edge {
+                vertex_one: 3,
+                vertex_two: 5,
+            },
+            Edge {
+                vertex_one: 4,
+                vertex_two: 5,
+            },
+        ),
+        Polygon::Parallelogram(
+            Edge {
+                vertex_one: 4,
+                vertex_two: 5,
+            },
+            Edge {
+                vertex_one: 4,
+                vertex_two: 6,
+            },
+            Edge {
+                vertex_one: 5,
+                vertex_two: 7,
+            },
+            Edge {
+                vertex_one: 6,
+                vertex_two: 7,
+            },
+        ),
+    ]);
+
+    // +-+-+-+
+    // |\| | |
+    // +-+-+-+
+    let graph = Graph::from_subdivision(&subdivision);
+    assert_eq!(graph.row_counts[0], 1);
+    assert_eq!(graph.row_counts[1], 1);
 }
 
 struct DfsVecs<'a> {
@@ -53,7 +193,8 @@ impl Graph {
     }
 
     pub fn skeletonize(self, subd: &Subdivision) -> Self {
-        self.remove_nodes(subd)
+        self
+            // .remove_nodes(subd)
             .remove_univalent()
             .smooth_over_bivalent(&subd.polygons)
     }
@@ -70,6 +211,7 @@ impl Graph {
         )
     }
 
+    // build a graph from a subdivision - skipping over nodes
     pub fn from_subdivision(subdivision: &Subdivision) -> Self {
         let mut polygon_idx_map: HashMap<&Polygon, usize> = HashMap::new();
         for (idx, poly) in subdivision.polygons.iter().enumerate() {
@@ -83,84 +225,47 @@ impl Graph {
         };
 
         for polygon in &subdivision.polygons {
-            let idx = polygon_idx_map.get(&polygon).unwrap();
-            for edge in polygon.edge_itr() {
-                for adj_polygon in subdivision.polygon_map.get(edge).unwrap() {
-                    if adj_polygon != polygon {
-                        let adj_idx = polygon_idx_map.get(adj_polygon).unwrap();
-                        graph.row_counts[*idx] += 1;
-                        graph.adjacency_list[*idx][*adj_idx] = 1;
+            match polygon {
+                Polygon::Triangle(..) => {
+                    let idx = polygon_idx_map.get(&polygon).unwrap();
+                    for edge in polygon.edge_itr() {
+                        for adj_polygon in subdivision
+                            .polygon_map
+                            .get(edge)
+                            .unwrap()
+                            .iter()
+                            .filter(|p| *p != polygon)
+                        {
+                            match adj_polygon {
+                                Polygon::Parallelogram(..) => {
+                                    match subdivision.next_triangle(*adj_polygon, *edge) {
+                                        Some(next_polygon) => {
+                                            if next_polygon != *polygon {
+                                                let adj_idx =
+                                                    polygon_idx_map.get(&next_polygon).unwrap();
+                                                graph.row_counts[*idx] += 1;
+                                                graph.adjacency_list[*idx][*adj_idx] = 1;
+                                            }
+                                        }
+                                        None => continue,
+                                    }
+                                }
+                                Polygon::Triangle(..) => {
+                                    if adj_polygon != polygon {
+                                        let adj_idx = polygon_idx_map.get(adj_polygon).unwrap();
+                                        graph.row_counts[*idx] += 1;
+                                        graph.adjacency_list[*idx][*adj_idx] = 1;
+                                    }
+                                }
+                            };
+                        }
                     }
                 }
+                Polygon::Parallelogram(..) => continue,
             }
         }
 
         graph
-    }
-
-    // todo: what if there are multiple nodes?
-    fn remove_nodes(mut self, subdivision: &Subdivision) -> Self {
-        let mut polygon_idx_map: HashMap<&Polygon, usize> = HashMap::new();
-        for (idx, poly) in subdivision.polygons.iter().enumerate() {
-            polygon_idx_map.insert(poly, idx);
-        }
-
-        for poly in subdivision.polygons.iter() {
-            match poly {
-                Polygon::Triangle(..) => continue,
-                Polygon::Parallelogram(..) => {
-                    let ((par_edge_a_one, par_edge_a_two), (par_edge_b_one, par_edge_b_two)) =
-                        poly.get_disjoint_edges().unwrap();
-
-                    let get_parallel_polygons = |edge_a, edge_b| -> Vec<_> {
-                        subdivision
-                            .polygon_map
-                            .get(&edge_a)
-                            .unwrap()
-                            .iter()
-                            .filter(|p| matches!(p, Polygon::Triangle(..)))
-                            .chain(
-                                subdivision
-                                    .polygon_map
-                                    .get(&edge_b)
-                                    .unwrap()
-                                    .iter()
-                                    .filter(|p| matches!(p, Polygon::Triangle(..))),
-                            )
-                            .collect::<Vec<_>>()
-                    };
-
-                    let mut connect_polys_through_node = |polygons: &Vec<&Polygon>| {
-                        if polygons.len() == 2 {
-                            let poly_a_idx = polygon_idx_map.get(&polygons[0]).unwrap();
-                            let poly_b_idx = polygon_idx_map.get(&polygons[1]).unwrap();
-                            self.row_counts[*poly_a_idx] += 1;
-                            self.row_counts[*poly_b_idx] += 1;
-                            self.adjacency_list[*poly_a_idx][*poly_b_idx] = 1;
-                            self.adjacency_list[*poly_b_idx][*poly_a_idx] = 1;
-                        }
-                    };
-
-                    let parallel_polys_a = get_parallel_polygons(par_edge_a_one, par_edge_a_two);
-                    connect_polys_through_node(&parallel_polys_a);
-
-                    let parallel_polys_b = get_parallel_polygons(par_edge_b_one, par_edge_b_two);
-                    connect_polys_through_node(&parallel_polys_b);
-
-                    let node_idx = polygon_idx_map.get(poly).unwrap();
-                    for par_polys in parallel_polys_a.iter().chain(parallel_polys_b.iter()) {
-                        let par_poly_idx = polygon_idx_map.get(par_polys).unwrap();
-                        self.row_counts[*par_poly_idx] -= 1;
-                        self.adjacency_list[*par_poly_idx][*node_idx] = 0;
-                    }
-
-                    self.row_counts[*node_idx] = 0;
-                    self.adjacency_list[*node_idx] = vec![0; subdivision.polygons.len()];
-                }
-            }
-        }
-
-        self
     }
 
     fn remove_univalent(mut self) -> Self {
