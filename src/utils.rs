@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use crate::polygon::*;
 use crate::subdivision::*;
 
+/// Parse nontroplanar file to filter out troplanar graphs
 pub fn parse_nonplanar_hashes(file: &str) -> Option<HashSet<String>> {
     match file.is_empty() {
         false => {
@@ -25,6 +26,7 @@ pub fn parse_nonplanar_hashes(file: &str) -> Option<HashSet<String>> {
     }
 }
 
+/// Appply flips to subdivisions to get subdivision for n+1 unit parallelograms
 pub fn apply_flips(
     subdivisions_m: &HashMap<usize, Vec<Subdivision>>,
     flips: &Vec<Flip>,
@@ -55,6 +57,7 @@ pub fn apply_flips(
     nodal_subdivisions_m
 }
 
+/// Parse TOPCOM data flips and triangulations
 pub fn parse_input(lines: Vec<String>) -> (HashMap<usize, Vec<Subdivision>>, Vec<Flip>) {
     let mut subdivisions_m: HashMap<usize, Vec<Subdivision>> = HashMap::new();
     let mut flips: Vec<Flip> = vec![];
@@ -87,6 +90,7 @@ pub fn parse_input(lines: Vec<String>) -> (HashMap<usize, Vec<Subdivision>>, Vec
     (subdivisions_m, flips)
 }
 
+/// Parse from std::in
 pub fn maximal_polygon_classes() {
     let lattice_polygons = LatticePolygon::parse_many();
     let mut lattice_polygon_map: HashMap<String, LatticePolygon> = HashMap::new();
@@ -104,7 +108,8 @@ pub fn maximal_polygon_classes() {
 }
 
 pub fn skeleton_classes(
-    nontroplanar_dir: String,
+    // don't use this for now
+    // nontroplanar_dir: String,
     genus: usize,
     out: String,
     tfile: String,
@@ -133,7 +138,7 @@ pub fn skeleton_classes(
     println!("Parsing triangulations and flips from {}", tfile);
     let (mut subdivisions_m, flips) = crate::utils::parse_input(
         fbuf.lines()
-            .map(|l| l.expect(&format!("Could not parse line from {tfile}")))
+            .map(|l| l.unwrap_or_else(|_| panic!("Could not parse line from {tfile}")))
             .collect(),
     );
 
@@ -218,7 +223,7 @@ pub fn skeleton_classes(
                     }
                 };
             }
-            match out_f.write(b"\n") {
+            match out_f.write_all(b"\n") {
                 Ok(_) => (),
                 Err(_) => return Err(format!("Failed to write to file {out}/{genus_str}!")),
             };

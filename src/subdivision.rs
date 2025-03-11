@@ -48,26 +48,6 @@ fn test_parallel_edge() {
 }
 
 #[test]
-fn test_illegal_flip() {
-    // flip
-    let fs = "flip[15]:={4,4}; // supported by [{7,10},{8,9}]";
-    // triangulation
-    let ts =  "T[4] := {{0,1,2},{0,2,3},{1,2,5},{1,4,5},{2,3,5},{3,5,6},{3,6,7},{3,7,8},{4,5,9},{5,6,9},{6,7,9},{7,8,9},{8,9,10},{8,10,11},{8,11,12},{9,10,13},{10,11,13},{11,12,13}};";
-    let flip = match Flip::new(fs) {
-        Some(f) => f,
-        _ => panic!("Failed to parse flip"),
-    };
-
-    let triang = match Subdivision::new(ts) {
-        Some((t, _)) => t,
-        _ => panic!("Failed to parse triangulation"),
-    };
-
-    println!("{:?}", flip);
-    println!("{:?}", triang);
-}
-
-#[test]
 fn test_flip_edge() {
     let triangle_a = Polygon::Triangle(
         Edge {
@@ -300,7 +280,7 @@ impl Polygon {
     pub fn is_legal_parallelogram(&self, vertices: &[crate::polygon::Point]) -> bool {
         match self.get_disjoint_edges() {
             Some(((e1, e2), (e3, e4))) => {
-                return LineSegment::from_points(
+                LineSegment::from_points(
                     vertices[e1.vertex_one as usize],
                     vertices[e1.vertex_two as usize],
                 )
@@ -314,7 +294,7 @@ impl Polygon {
                 .is_parallel_to(LineSegment::from_points(
                     vertices[e4.vertex_one as usize],
                     vertices[e4.vertex_two as usize],
-                ));
+                ))
             }
 
             None => false,
@@ -600,11 +580,11 @@ impl Subdivision {
                 .polygon_map
                 .get(&parallel_edge)
                 .unwrap()
-                .into_iter()
+                .iter()
                 .filter(|p| *p != &parallelogram)
                 .collect::<Vec<_>>();
 
-            if next_poly.len() == 0 {
+            if next_poly.is_empty() {
                 return None;
             }
 
@@ -718,17 +698,14 @@ impl Flip {
                     }
                 }
                 None => {
-                    match (polygon_a, polygon_b) {
-                        (Polygon::Triangle(..), Polygon::Triangle(..)) => {
-                            println!(
-                                "Cannot find flip edge: {} {} {}\n\n",
-                                edge.unwrap(),
-                                polygon_a,
-                                polygon_b
-                            );
-                        }
-                        (_, _) => (),
-                    };
+                    if let (Polygon::Triangle(..), Polygon::Triangle(..)) = (polygon_a, polygon_b) {
+                        println!(
+                            "Cannot find flip edge: {} {} {}\n\n",
+                            edge.unwrap(),
+                            polygon_a,
+                            polygon_b
+                        );
+                    }
 
                     return None;
                 }
@@ -816,16 +793,10 @@ impl Flip {
                             flip.subdivision_two_idx = idx_one;
                         }
                         1 => {
-                            flip.edge_one = Some(Edge {
-                                vertex_one: idx_one as i16,
-                                vertex_two: idx_two as i16,
-                            });
+                            flip.edge_one = Some(Edge::new(idx_one as i16, idx_two as i16));
                         }
                         2 => {
-                            flip.edge_two = Some(Edge {
-                                vertex_one: idx_one as i16,
-                                vertex_two: idx_two as i16,
-                            });
+                            flip.edge_two = Some(Edge::new(idx_one as i16, idx_two as i16));
                         }
                         _ => unreachable!("Should not be reachable because of if statement above."),
                     }

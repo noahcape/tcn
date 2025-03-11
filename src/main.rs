@@ -36,7 +36,7 @@ fn main() {
 
     // **computing skeletons**
     match utils::skeleton_classes(
-        args.nontroplanar,
+        // args.nontroplanar,
         args.genus,
         args.out,
         args.topcomf,
