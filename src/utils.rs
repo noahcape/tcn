@@ -63,7 +63,8 @@ pub fn parse_input(lines: Vec<String>) -> (HashMap<usize, Vec<Subdivision>>, Vec
     let mut flips: Vec<Flip> = vec![];
 
     for line in lines.clone() {
-        match line.starts_with("T") {
+        // less intuitive filtering but flips start with {a,b} and triangulations start with a {{a,b,c},..,{c,d,e}}
+        match line.starts_with("{{") {
             // subdivision
             true => {
                 let (triangulation, idx) = match Subdivision::new(&line) {

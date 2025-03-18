@@ -353,10 +353,20 @@ impl fmt::Display for Subdivision {
 
 #[test]
 fn parse_subdivision() {
-    let test_str = "T[63] := {{0,1,2},{0,1,3},{1,2,6},{1,3,7},{1,4,5},{1,4,7},{1,5,6},{3,7,9},{4,5,8},{4,7,8},{5,6,8},{7,8,9}};";
+    let test_str = "{{0,1,2},{1,2,4},{1,3,4},{3,4,5}} # ID: 12";
 
-    let (subd, _) = Subdivision::new(test_str).unwrap();
-    assert_eq!(subd, Subdivision::new_with_regex(test_str));
+    let polygons = vec![
+        Polygon::Triangle(Edge::new(0, 1), Edge::new(1, 2), Edge::new(0, 2)),
+        Polygon::Triangle(Edge::new(1, 2), Edge::new(2, 4), Edge::new(1, 4)),
+        Polygon::Triangle(Edge::new(1, 3), Edge::new(3, 4), Edge::new(1, 4)),
+        Polygon::Triangle(Edge::new(3, 4), Edge::new(4, 5), Edge::new(3, 5)),
+    ];
+
+    let t_subd = Subdivision::new_from_polygons(polygons);
+    let (subd, subd_idx) = Subdivision::new(test_str).unwrap();
+
+    assert_eq!(subd, t_subd);
+    assert_eq!(subd_idx, 12);
 }
 
 #[test]
@@ -467,30 +477,25 @@ impl Subdivision {
             polygon_map: HashMap::new(),
             polygons: vec![],
         };
-        let mut subd_idx = 0;
 
         let mut cumul = String::new();
         let mut start_cumul = false;
 
-        // because of the formatting of triangulations {{..}}; the last }; should be removed
-        // this saves a conditional each time a '}' is seen
-        for chr in s[..s.len() - 2].chars() {
+        // new form: {{0,1,2},{1,2,4},{1,3,4},{3,4,5}} # ID: 1
+        for chr in s.chars() {
             match chr {
-                '[' => {
-                    start_cumul = true;
-                }
-                ']' => {
-                    subd_idx = cumul.parse::<usize>().unwrap();
-                    start_cumul = false;
-                    cumul = String::new();
-                }
+                ':' | 'D' | 'I' | '#' => continue,
                 '{' => {
                     start_cumul = true;
                 }
                 '}' => {
                     let (idx_one, idx_two, idx_three) = match Subdivision::parse_idxs(&cumul) {
                         Some((i, j, k)) => (i, j, k),
-                        None => return Some((subdivision, subd_idx)),
+                        None => {
+                            start_cumul = true;
+                            cumul = String::new();
+                            continue;
+                        } // this should happen only after all indices have been parsed
                     };
 
                     let tri = Polygon::from_edges(vec![
@@ -520,6 +525,8 @@ impl Subdivision {
                 }
             }
         }
+
+        let subd_idx = cumul.trim().parse::<usize>().unwrap();
 
         Some((subdivision, subd_idx))
     }
@@ -616,21 +623,19 @@ pub struct Flip {
 
 #[test]
 fn parse_flips() {
-    let test_str_one = "flip[3820]:={78,78}; // to known triang, supported by [{1,8,9},{7}]";
-    let test_str_two = "flip[3821]:={78,78}; // to known triang, supported by [{4},{1,8}]";
-    let test_str_three = "flip[3697]:={78,78}; // supported by [{0,9},{3}]";
-    let test_str_four = "flip[1786]:={40,55}; // to known triang, supported by [{3,8},{4,7}]";
+    let test_str_one = "{4, 9} # ID: 9 supported on [{2,7},{4,5}] (to new triang)";
+    let f = Flip::new(test_str_one).unwrap();
+    let t_f: Flip = Flip {
+        subdivision_one_idx: 9,
+        subdivision_two_idx: 4,
+        edge_one: Some(Edge::new(2, 7)),
+        edge_two: Some(Edge::new(4, 5)),
+    };
 
-    assert_eq!(Flip::new(test_str_one), Flip::new_with_regex(test_str_one));
-    assert_eq!(Flip::new(test_str_two), Flip::new_with_regex(test_str_two));
-    assert_eq!(
-        Flip::new(test_str_three),
-        Flip::new_with_regex(test_str_three)
-    );
-    assert_eq!(
-        Flip::new(test_str_four),
-        Flip::new_with_regex(test_str_four)
-    );
+    assert_eq!(f, t_f);
+
+    let test_str_two = "{78, 78} # ID: 9 supported on [{4},{1,8}] (to new triang)";
+    assert!(Flip::new(test_str_two).is_none());
 }
 
 impl Flip {
@@ -763,6 +768,7 @@ impl Flip {
         None
     }
 
+    // {4, 9} # ID: 9 supported on [{2,7},{4,5}] (to new triang)
     pub fn new(s: &str) -> Option<Flip> {
         let mut flip = Flip {
             edge_one: None,
