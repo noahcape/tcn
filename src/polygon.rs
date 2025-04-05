@@ -77,6 +77,14 @@ fn test_doulby_interior_points() {
     assert_eq!(vec![doubly_interior], lp.doubly_interior().points);
 }
 
+#[test]
+fn test_parsing_vertices() {
+    let vertices = "[[0,0,1],[1,0,1],[2,0,1],[3,0,1],[4,0,1],[5,0,1],[6,0,1],[0,1,1],[1,1,1],[2,1,1],[3,1,1],[4,1,1],[0,2,1],[1,2,1],[2,2,1],[0,3,1]]\n";
+
+    let parsed_vertices = Point::parse_many_h(vertices.to_owned());
+    println!("{:?}", parsed_vertices);
+}
+
 impl LatticePolygon {
     pub fn is_convex(&self) -> bool {
         self.interior_points().points.is_empty()
@@ -342,24 +350,19 @@ impl Point {
         })
     }
 
-    pub fn parse_many(file: String) -> Option<Vec<Point>> {
-        let mut fopen = std::fs::File::open(file).unwrap();
-        let mut buf = String::new();
-
-        match fopen.read_to_string(&mut buf) {
-            Ok(_) => (),
-            Err(_) => panic!("Failed to read vertex file"),
-        }
-
+    fn parse_many_h(buf: String) -> Option<Vec<Point>> {
         let mut points = vec![];
 
         let mut cumul = String::new();
         let mut start_cumul = false;
 
-        for chr in buf[..=buf.len() - 2].chars() {
+        for chr in buf.chars() {
             match chr {
                 '[' => start_cumul = true,
                 ']' => {
+                    if cumul.is_empty() {
+                        break;
+                    }
                     let pt = match Point::parse_from_str(&cumul) {
                         Some(pt) => pt,
                         None => return None,
@@ -377,6 +380,18 @@ impl Point {
         }
 
         Some(points)
+    }
+
+    pub fn parse_many(file: String) -> Option<Vec<Point>> {
+        let mut fopen = std::fs::File::open(file).unwrap();
+        let mut buf = String::new();
+
+        match fopen.read_to_string(&mut buf) {
+            Ok(_) => (),
+            Err(_) => panic!("Failed to read vertex file"),
+        }
+
+        Self::parse_many_h(buf)
     }
 }
 
