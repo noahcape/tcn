@@ -12,3 +12,6 @@ TODO.txt
 *.pdf
 
 *.out
+
+# all maximal polygons (non-zipped)
+maximal_polygons_1to25*.txt

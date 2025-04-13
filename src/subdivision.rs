@@ -1,11 +1,13 @@
-use regex::Regex;
 use std::{cmp::Ordering, collections::HashMap, fmt};
 
 use crate::polygon::LineSegment;
 
+/// Polygons which subdivisions can be made up of
 #[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash)]
 pub enum Polygon {
+    /// Three edges which define a triangle
     Triangle(Edge, Edge, Edge),
+    /// Four edges which define a parallelogram
     Parallelogram(Edge, Edge, Edge, Edge),
 }
 
@@ -78,7 +80,7 @@ fn test_flip_edge() {
         },
     );
 
-    let parrallelogram = Polygon::flip_edge(
+    let parrallelogram = Polygon::remove_edge(
         triangle_a,
         triangle_b,
         Edge {
@@ -176,6 +178,11 @@ fn test_is_legal_paralellogram_b() {
 }
 
 impl Polygon {
+    /// Initialize a new polygon from a vector of edges
+    ///
+    /// Returns parallelogram if input is four edges
+    /// A triangle if input is three edges
+    /// Nothing is input is fewer or more
     pub fn from_edges(mut edges: Vec<&Edge>) -> Option<Self> {
         edges.sort_by(|a, b| a.compare_to(b));
 
@@ -194,6 +201,7 @@ impl Polygon {
         }
     }
 
+    /// Returns an iterator over the edges of a polygon
     pub fn edge_itr(&self) -> impl Iterator<Item = &'_ Edge> {
         match self {
             Polygon::Triangle(edge, edge1, edge2) => vec![edge, edge1, edge2].into_iter(),
@@ -203,11 +211,15 @@ impl Polygon {
         }
     }
 
+    /// True if the edge is part of the polygon
+    /// Edges vertices are ordered on initialization so that `vertex_one` < `vertex_two`
     pub fn contains_edge(&self, edge: &Edge) -> bool {
         self.edge_itr().any(|e| e == edge)
     }
 
-    pub fn flip_edge(polya: Polygon, polyb: Polygon, edge: Edge) -> Option<Polygon> {
+    /// Remove an edge between two triangles forming a parallelogram of left over edges
+    /// `polya` and `polyb` both must contain `edge`
+    pub fn remove_edge(polya: Polygon, polyb: Polygon, edge: Edge) -> Option<Polygon> {
         if !polya.contains_edge(&edge) && !polyb.contains_edge(&edge) {
             return None;
         }
@@ -225,6 +237,7 @@ impl Polygon {
         }
     }
 
+    /// Return true if polygon is a triangle
     pub fn is_triangle(&self) -> bool {
         match self {
             Polygon::Parallelogram(..) => false,
@@ -232,8 +245,7 @@ impl Polygon {
         }
     }
 
-    /// Returns tuple-of-tuple each containing edges
-    /// with disjoint vertices
+    /// Returns tuple-of-tuple each containing edges with disjoint vertices
     pub fn get_disjoint_edges(&self) -> Option<((Edge, Edge), (Edge, Edge))> {
         match self {
             Polygon::Parallelogram(edge1, edge2, edge3, edge4) => {
@@ -262,6 +274,8 @@ impl Polygon {
         }
     }
 
+    /// Returns the parallel edge to input edge
+    /// None is `self` is a triangle
     pub fn get_parallel_edge_to(&self, edge: Edge) -> Option<Edge> {
         match self {
             Polygon::Parallelogram(e1, e2, e3, e4) => {
@@ -277,6 +291,7 @@ impl Polygon {
         }
     }
 
+    /// Determine if a parallelogram is legal - made up of two parallel edges
     pub fn is_legal_parallelogram(&self, vertices: &[crate::polygon::Point]) -> bool {
         match self.get_disjoint_edges() {
             Some(((e1, e2), (e3, e4))) => {
@@ -302,9 +317,12 @@ impl Polygon {
     }
 }
 
+/// A data structure representing edges of a subdivision between two lattice points (vertices)
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Edge {
+    /// First vertex of edge
     pub vertex_one: i16,
+    /// Second vertex of edge
     pub vertex_two: i16,
 }
 
@@ -315,28 +333,34 @@ impl fmt::Display for Edge {
 }
 
 impl Edge {
-    fn compare_to(&self, other: &Edge) -> Ordering {
-        self.vertex_two.cmp(&other.vertex_two)
-    }
-
-    fn shares_vertex_with(&self, other: &Edge) -> bool {
-        self.vertex_one == other.vertex_one
-            || self.vertex_one == other.vertex_two
-            || self.vertex_two == other.vertex_one
-            || self.vertex_two == other.vertex_two
-    }
-
+    /// Create a new edge from two vertices
     pub fn new(i: i16, j: i16) -> Self {
         Self {
             vertex_one: i,
             vertex_two: j,
         }
     }
+
+    /// Compare two vertices of edges for ordering
+    fn compare_to(&self, other: &Edge) -> Ordering {
+        self.vertex_two.cmp(&other.vertex_two)
+    }
+
+    /// Check if two edges share a vertex
+    fn shares_vertex_with(&self, other: &Edge) -> bool {
+        self.vertex_one == other.vertex_one
+            || self.vertex_one == other.vertex_two
+            || self.vertex_two == other.vertex_one
+            || self.vertex_two == other.vertex_two
+    }
 }
 
+/// Data structure to represent a subdivision
 #[derive(Debug, Clone, PartialEq)]
 pub struct Subdivision {
+    /// Polygons which the subdivision is made out of
     pub polygons: Vec<Polygon>,
+    /// A map of edges and polygons which contain that edge
     pub polygon_map: HashMap<Edge, Vec<Polygon>>,
 }
 
@@ -450,6 +474,7 @@ impl Subdivision {
         Some((idxs[0], idxs[1], idxs[2]))
     }
 
+    /// Create a new subdivision from a vector of polygons
     pub fn new_from_polygons(polygons: Vec<Polygon>) -> Self {
         let mut subdivision = Subdivision {
             polygon_map: HashMap::new(),
@@ -472,7 +497,11 @@ impl Subdivision {
         subdivision
     }
 
-    pub fn new(s: &str) -> Option<(Self, usize)> {
+    /// Create a new subdivision from a string representation of the subdivision (expecting the format from TOPCOM)
+    ///
+    /// Ex: {{0,1,2},{1,2,4},{1,3,4},{3,4,5}} # ID: 1
+    /// Where in this example there are four interior triangles which make up the subdivision and it is identified with idx 1.
+    pub fn new(subd_str: &str) -> Option<(Self, usize)> {
         let mut subdivision = Subdivision {
             polygon_map: HashMap::new(),
             polygons: vec![],
@@ -481,8 +510,7 @@ impl Subdivision {
         let mut cumul = String::new();
         let mut start_cumul = false;
 
-        // new form: {{0,1,2},{1,2,4},{1,3,4},{3,4,5}} # ID: 1
-        for chr in s.chars() {
+        for chr in subd_str.chars() {
             match chr {
                 ':' | 'D' | 'I' | '#' => continue,
                 '{' => {
@@ -531,48 +559,7 @@ impl Subdivision {
         Some((subdivision, subd_idx))
     }
 
-    pub fn new_with_regex(s: &str) -> Self {
-        let mut subdivision = Subdivision {
-            polygon_map: HashMap::new(),
-            polygons: vec![],
-        };
-
-        let re = Regex::new(r"\{\d+,\d+,\d+\}").unwrap();
-
-        for mat in re.find_iter(s) {
-            let verticies = s
-                .get(mat.range())
-                .unwrap()
-                .split(",")
-                .map(|s| {
-                    s.trim_matches(|c| c == '}' || c == '{')
-                        .parse::<i16>()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-
-            let tri = Polygon::from_edges(vec![
-                &Edge::new(verticies[0], verticies[1]),
-                &Edge::new(verticies[1], verticies[2]),
-                &Edge::new(verticies[0], verticies[2]),
-            ])
-            .unwrap();
-
-            for edge in tri.edge_itr() {
-                match subdivision.polygon_map.get_mut(edge) {
-                    Some(list) => list.push(tri),
-                    None => {
-                        subdivision.polygon_map.insert(*edge, vec![tri]);
-                    }
-                }
-            }
-
-            subdivision.polygons.push(tri);
-        }
-
-        subdivision
-    }
-
+    /// Find the next triangle - or boundary if returns None - by following parallel edges of a parallelogram
     pub fn next_triangle(&self, parallelogram: Polygon, edge: Edge) -> Option<Polygon> {
         let mut edge = edge;
         let mut parallelogram = parallelogram;
@@ -615,9 +602,13 @@ impl Subdivision {
 /// by replacing edge_one by edge_two in all polygons
 #[derive(Debug, PartialEq)]
 pub struct Flip {
+    /// Edge which can be flipped in `subdivision_one`
     pub edge_one: Option<Edge>,
+    /// Subdivision which `edge_one` exists in
     pub subdivision_one_idx: usize,
+    /// Edge which can be flipped in `subdivision_two`
     pub edge_two: Option<Edge>,
+    /// Subdivision which `edge_two` exists in
     pub subdivision_two_idx: usize,
 }
 
@@ -655,8 +646,11 @@ impl Flip {
         Some((idxs[0], idxs[1]))
     }
 
-    // should be polygons from edge_one
-    pub fn apply_flip(
+    /// Remove a flip to add a unit parallelogram to a subdivision
+    ///
+    /// Before removing the flip ensure that removing it will add a legal unit parallelogram, that is a convex parallelogram with area 1.
+    /// Return a list of all subdivisions with the flipped edge such that breaking the edge adds a legal unit parallelogram.
+    pub fn remove_flip(
         &self,
         subdivisions: &Vec<Subdivision>,
         vertices: &[crate::polygon::Point],
@@ -684,36 +678,19 @@ impl Flip {
 
                     flip_adj_polygons
                 }
-                None => return None,
+                None => continue,
             };
 
-            match Polygon::flip_edge(polygon_a, polygon_b, edge.unwrap()) {
+            match Polygon::remove_edge(polygon_a, polygon_b, edge.unwrap()) {
                 Some(p) => {
                     // or check if its a parallelogram by check if the disjoint edges are parallel
                     if p.is_legal_parallelogram(vertices) {
                         polygons.push(p)
                     } else {
-                        println!(
-                            "Illegal parallelogram: {} {} {:?}",
-                            p,
-                            edge.unwrap(),
-                            subdivisions
-                        );
-                        return None;
+                        continue;
                     }
                 }
-                None => {
-                    if let (Polygon::Triangle(..), Polygon::Triangle(..)) = (polygon_a, polygon_b) {
-                        println!(
-                            "Cannot find flip edge: {} {} {}\n\n",
-                            edge.unwrap(),
-                            polygon_a,
-                            polygon_b
-                        );
-                    }
-
-                    return None;
-                }
+                None => continue,
             };
 
             flipped_subds.push(Subdivision::new_from_polygons(polygons));
@@ -722,6 +699,10 @@ impl Flip {
         Some(flipped_subds)
     }
 
+    /// Finds the corresponding subdivisions which a flip is defined on.
+    ///
+    /// If the corresponding interior polygons of the subdivisions are not compatible with the flip return None
+    /// Else return the subdivisions where the flip can be broken in
     pub fn set_up_flip(
         &self,
         subdivisions: &HashMap<usize, Vec<Subdivision>>,
@@ -768,8 +749,11 @@ impl Flip {
         None
     }
 
-    // {4, 9} # ID: 9 supported on [{2,7},{4,5}] (to new triang)
-    pub fn new(s: &str) -> Option<Flip> {
+    /// Parsing a string which specifies a flip in a triangulation
+    ///
+    /// Ex: {4, 9} # ID: 9 supported on [{2,7},{4,5}] (to new triang)
+    /// This means that the edge between vertices (4,5) in triangulation 4 is flipped to become the edge (2,7) in triangulation 4.
+    pub fn new(flip_str: &str) -> Option<Flip> {
         let mut flip = Flip {
             edge_one: None,
             edge_two: None,
@@ -780,7 +764,7 @@ impl Flip {
         let mut cumul = String::new();
         let mut start_cumul = false;
         let mut count = 0;
-        for chr in s.chars() {
+        for chr in flip_str.chars() {
             match chr {
                 '{' => start_cumul = true,
                 '}' => {
@@ -820,75 +804,35 @@ impl Flip {
 
         Some(flip)
     }
+}
 
-    pub fn new_with_regex(s: &str) -> Option<Flip> {
-        let mut flip = Flip {
-            edge_one: None,
-            edge_two: None,
-            subdivision_one_idx: usize::MAX,
-            subdivision_two_idx: usize::MAX,
-        };
+/// Remove flipped edges from subdivisions to add unit parallelogram
+pub fn remove_flipped_edges(
+    subdivisions_m: &HashMap<usize, Vec<Subdivision>>,
+    flips: &Vec<Flip>,
+    vertices: &[crate::polygon::Point],
+) -> HashMap<usize, Vec<Subdivision>> {
+    let mut nodal_subdivisions_m: HashMap<usize, Vec<Subdivision>> = HashMap::new();
 
-        let re = Regex::new(r"\{\d+,\d+\}").unwrap();
-
-        let matches = re.find_iter(s).collect::<Vec<_>>();
-
-        if matches.len() != 3 {
-            return None;
-        } else {
-            for (idx, mat) in matches.iter().enumerate() {
-                match idx {
-                    0 => {
-                        let idxs = s
-                            .get(mat.range())
-                            .unwrap()
-                            .split(",")
-                            .map(|s| {
-                                s.trim_matches(|c| c == '}' || c == '{')
-                                    .parse::<usize>()
-                                    .unwrap()
-                            })
-                            .collect::<Vec<_>>();
-                        flip.subdivision_one_idx = idxs[1];
-                        flip.subdivision_two_idx = idxs[0];
-                    }
-                    1 => {
-                        let edge = s
-                            .get(mat.range())
-                            .unwrap()
-                            .split(",")
-                            .map(|s| {
-                                s.trim_matches(|c| c == '}' || c == '{')
-                                    .parse::<i16>()
-                                    .unwrap()
-                            })
-                            .collect::<Vec<_>>();
-                        flip.edge_one = Some(Edge {
-                            vertex_one: edge[0],
-                            vertex_two: edge[1],
-                        });
-                    }
-                    2 => {
-                        let edge = s
-                            .get(mat.range())
-                            .unwrap()
-                            .split(",")
-                            .map(|s| {
-                                s.trim_matches(|c| c == '}' || c == '{')
-                                    .parse::<i16>()
-                                    .unwrap()
-                            })
-                            .collect::<Vec<_>>();
-                        flip.edge_two = Some(Edge {
-                            vertex_one: edge[0],
-                            vertex_two: edge[1],
-                        });
-                    }
-                    _ => unreachable!("Should not be reachable because of if statement above."),
+    // Flip edge in both triangulation one and two - as long as it is possible
+    for flip in flips {
+        let flipped_subdivisions = match flip.set_up_flip(subdivisions_m) {
+            Some(flippable_subdivisions) => {
+                match flip.remove_flip(&flippable_subdivisions, vertices) {
+                    Some(f_subd) => f_subd,
+                    None => continue,
                 }
             }
-        }
+            None => continue,
+        };
 
-        Some(flip)
+        match nodal_subdivisions_m.get_mut(&flip.subdivision_one_idx) {
+            Some(v) => v.extend(flipped_subdivisions),
+            None => {
+                nodal_subdivisions_m.insert(flip.subdivision_one_idx, flipped_subdivisions);
+            }
+        }
     }
+
+    nodal_subdivisions_m
 }

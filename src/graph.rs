@@ -4,6 +4,7 @@ use std::{fmt, vec};
 
 use crate::subdivision::*;
 
+/// Graph data structure
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Graph {
     adjacency_list: Vec<Vec<usize>>,
@@ -187,18 +188,21 @@ impl Graph {
         edges.into_iter()
     }
 
+    /// Create a new skeleton from a subdivision following the process of skeletonization
+    /// Returning a connected trivalent graph with loops and parallel edges
     pub fn new_skeleton(subdivision: &Subdivision) -> Self {
         let graph = Graph::from_subdivision(subdivision);
         graph.skeletonize(subdivision)
     }
 
-    pub fn skeletonize(self, subd: &Subdivision) -> Self {
-        self
-            // .remove_nodes(subd)
-            .remove_univalent()
-            .smooth_over_bivalent(&subd.polygons)
+    /// Skeletonize the graph created from the subdivision.
+    /// Iteratively remove univalent vertices and corresponding edges
+    /// Smooth over bivalent vertices leaving only a connected trivalent graph with loops and parallel edges
+    fn skeletonize(self, subd: &Subdivision) -> Self {
+        self.remove_univalent().smooth_over_bivalent(&subd.polygons)
     }
 
+    /// Get a hash corresponding to information about the graph can use the hash to speed up isomorphic check
     pub fn categorizing_hash(&mut self) -> String {
         let sprawling = self.sprawling.unwrap_or(0);
 
@@ -211,7 +215,7 @@ impl Graph {
         )
     }
 
-    // build a graph from a subdivision - skipping over nodes
+    /// Build a graph from a subdivision - skip over unit parallelograms in subdivision
     pub fn from_subdivision(subdivision: &Subdivision) -> Self {
         let mut polygon_idx_map: HashMap<&Polygon, usize> = HashMap::new();
         for (idx, poly) in subdivision.polygons.iter().enumerate() {
@@ -439,6 +443,7 @@ impl Graph {
         petgraph
     }
 
+    /// Determine if two graphs are isomorphic
     pub fn is_isomorphic(&self, other: &Graph) -> bool {
         use petgraph::algo;
 
